@@ -190,12 +190,10 @@ audio{display:none}
           <div id="status"></div>
           <div class="vers" id="vers"></div>
           <div class="row">
-            <button class="btn ghost" id="upBtn">Upload audio</button>
             <button class="btn ghost" id="audiusBtn" style="display:none">Original (Audius)</button>
-            <input id="file" type="file" accept="audio/*" hidden>
           </div>
           <input id="ytlink" type="text" placeholder="Paste a YouTube link, press Enter">
-          <p class="fine">Video plays through YouTube's embedded player, so YouTube may show ads. Uploaded files and Audius tracks are ad-free.</p>
+          <p class="fine">Video plays through YouTube's embedded player, so YouTube may show ads. Audius tracks are ad-free.</p>
         </div>
       </aside>
     </div>
@@ -305,7 +303,7 @@ async function openTrack(t) {
   renderSources();
   if (S.versions.length) return useYT(S.versions[0].id);
   if (S.audiusUrl) return useAudius();
-  setStatus('No automatic backing track found. Upload an audio file or paste a YouTube karaoke link.');
+  setStatus('No automatic backing track found. Paste a YouTube karaoke link to keep singing.');
   $('hint').textContent = 'Add a backing track on the right to start singing ➜';
 }
 async function findYT(t) {
@@ -338,13 +336,10 @@ function useYT(id) {
     if (S.yt && S.yt.loadVideoById) return S.yt.loadVideoById(id);
     S.yt = new YT.Player('ytp', { videoId: id, width: '100%', height: '100%', playerVars: { playsinline: 1, rel: 0, modestbranding: 1 },
       events: { onStateChange: e => { if (e.data === 0) ended(); else if (e.data === 1) $('hint').textContent = ''; } } });
-  }).catch(() => setStatus('Could not load the YouTube player. Try uploading an audio file instead.'));
+  }).catch(() => setStatus('Could not load the YouTube player. Try a different video or paste another link.'));
 }
 function useAudius() { stopYT(); setMode('audio'); audio.src = S.audiusUrl; ready('audius'); }
-function useFile(f) { stopYT(); setMode('audio'); audio.src = URL.createObjectURL(f); ready('file:' + f.name); }
 $('audiusBtn').onclick = () => S.audiusUrl && useAudius();
-$('upBtn').onclick = () => $('file').click();
-$('file').onchange = e => { if (e.target.files[0]) useFile(e.target.files[0]); };
 $('ytlink').onkeydown = e => {
   if (e.key !== 'Enter') return;
   const m = e.target.value.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([\w-]{11})/);
