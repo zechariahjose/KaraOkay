@@ -9,5 +9,18 @@
   },
   "dependencies": {
     "express": "^4.19.2"
-  }
+  },
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zechariahjose/KaraOkay.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/zechariahjose/KaraOkay/issues"
+  },
+  "homepage": "https://github.com/zechariahjose/KaraOkay#readme"
 }

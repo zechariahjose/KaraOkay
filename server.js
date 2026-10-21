@@ -2,7 +2,24 @@ const express = require('express');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const preferredPort = Number(process.env.PORT || 3000);
+const candidatePorts = Array.from(new Set([preferredPort, preferredPort + 1, preferredPort + 2, preferredPort + 3, 3001]));
+
+function startServer(portIndex = 0) {
+  const port = candidatePorts[portIndex];
+  const server = app.listen(port, () => {
+    console.log(`KaraOkay is running at http://localhost:${port}`);
+  });
+
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE' && portIndex < candidatePorts.length - 1) {
+      console.warn(`Port ${port} is busy. Retrying on http://localhost:${candidatePorts[portIndex + 1]}...`);
+      startServer(portIndex + 1);
+      return;
+    }
+    throw error;
+  });
+}
 
 const fallbackSongs = [
   ['Dancing Queen', 'ABBA', 'xFrGuyw1V8s'],
@@ -84,6 +101,4 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`KaraOkay is running at http://localhost:${PORT}`);
-});
+startServer();
