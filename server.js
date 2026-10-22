@@ -41,7 +41,7 @@ function buildFallbackResults(query) {
     return titleMatch || artistMatch || normalized.includes(firstWord);
   });
 
-  const items = (matches.length ? matches : fallbackSongs).slice(0, 5).map(([title, artist, id]) => ({
+  const items = matches.slice(0, 5).map(([title, artist, id]) => ({
     id,
     title,
     channel: artist,

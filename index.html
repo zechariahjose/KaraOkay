@@ -221,7 +221,7 @@ audio{display:none}
 <script>
 const $ = id => document.getElementById(id);
 const audio = $('audio'), APP = 'karaokay';
-const S = { track: null, lines: [], active: -1, offset: 0, mode: 'none', yt: null, ytReady: null, srcKey: '', dragging: false, versions: [], audiusUrl: null };
+const S = { track: null, lines: [], active: -1, offset: 0, mode: 'none', yt: null, ytReady: null, ytPlayerReady: false, ytVideoId: '', ytTried: new Set(), srcKey: '', dragging: false, versions: [], audiusUrl: null };
 const dec = s => { const t = document.createElement('textarea'); t.innerHTML = s; return t.value; };
 const fmt = s => { s = Math.max(0, s | 0); return (s / 60 | 0) + ':' + String(s % 60).padStart(2, '0'); };
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
@@ -290,7 +290,7 @@ function loadOffset() { const v = parseFloat(store.get('kk:off:' + S.track.id + 
 
 /* ---------- open a song & find backing tracks ---------- */
 async function openTrack(t) {
-  stopAll(); S.track = t; S.srcKey = ''; S.versions = []; S.audiusUrl = null; S.offset = 0; showOffset();
+  stopAll(); S.track = t; S.srcKey = ''; S.versions = []; S.audiusUrl = null; S.ytTried = new Set(); S.ytVideoId = ''; S.offset = 0; showOffset();
   S.lines = parseLRC(t.syncedLyrics);
   $('tTitle').textContent = t.trackName; $('tArtist').textContent = t.artistName;
   renderLyrics(); renderSources(); setMode('none'); setView('stage');
@@ -303,8 +303,8 @@ async function openTrack(t) {
   renderSources();
   if (S.versions.length) return useYT(S.versions[0].id);
   if (S.audiusUrl) return useAudius();
-  setStatus('No automatic backing track found. Paste a YouTube karaoke link to keep singing.');
-  $('hint').textContent = 'Add a backing track on the right to start singing ➜';
+  setStatus('No playable backing track was found for this song. Try another search result or paste a YouTube link.');
+  $('hint').textContent = 'This song is currently unavailable. Add another backing track to continue ➜';
 }
 async function findYT(t) {
   const r = await fetch('/api/youtube?q=' + encodeURIComponent(t.trackName + ' ' + t.artistName));
@@ -328,15 +328,36 @@ function renderSources() {
 }
 function ready(key) { S.srcKey = key; loadOffset(); renderSources(); setStatus(''); $('hint').textContent = 'Press ▶ to start the music'; }
 function useYT(id) {
-  audio.pause(); audio.removeAttribute('src'); setMode('yt'); ready('yt:' + id);
+  audio.pause(); audio.removeAttribute('src'); S.ytVideoId = id; S.ytTried.add(id); setMode('yt'); ready('yt:' + id);
   if (!S.ytReady) S.ytReady = new Promise((res, rej) => {
     window.onYouTubeIframeAPIReady = res; const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; s.onerror = rej; document.head.appendChild(s);
   });
   S.ytReady.then(() => {
-    if (S.yt && S.yt.loadVideoById) return S.yt.loadVideoById(id);
-    S.yt = new YT.Player('ytp', { videoId: id, width: '100%', height: '100%', playerVars: { playsinline: 1, rel: 0, modestbranding: 1 },
-      events: { onStateChange: e => { if (e.data === 0) ended(); else if (e.data === 1) $('hint').textContent = ''; } } });
+    if (S.yt && S.ytPlayerReady) return S.yt.loadVideoById(S.ytVideoId);
+    if (S.yt) return;
+    S.yt = new YT.Player('ytp', { videoId: S.ytVideoId, width: '100%', height: '100%', playerVars: { playsinline: 1, rel: 0, modestbranding: 1 },
+      events: {
+        onReady: () => { S.ytPlayerReady = true; if (S.mode === 'yt' && S.ytVideoId) S.yt.loadVideoById(S.ytVideoId); },
+        onStateChange: e => { if (e.data === 0) ended(); else if (e.data === 1) { setStatus(''); $('hint').textContent = ''; } },
+        onError: e => handleYTError(e.data, e.target.getVideoData?.().video_id || S.ytVideoId)
+      } });
   }).catch(() => setStatus('Could not load the YouTube player. Try a different video or paste another link.'));
+}
+function handleYTError(code, failedId) {
+  if (S.mode !== 'yt' || !failedId || failedId !== S.ytVideoId) return;
+  const next = S.versions.find(v => v.id !== failedId && !S.ytTried.has(v.id));
+  if (next) {
+    setStatus('That video is unavailable. Trying another backing track…');
+    return useYT(next.id);
+  }
+  if (S.audiusUrl && S.srcKey !== 'audius') {
+    setStatus('That video is unavailable. Trying the Audius track…');
+    return useAudius();
+  }
+  stopYT(); setMode('none');
+  const reason = ({ 2: 'invalid video link', 5: 'unsupported video format', 100: 'video removed or private', 101: 'embedding disabled', 150: 'embedding disabled', 153: 'player could not verify the request' })[code] || 'video could not be played';
+  setStatus(`This song is unavailable: the ${reason}. Choose another version or paste a different YouTube link.`);
+  $('hint').textContent = 'No playable backing track is available for this song.';
 }
 function useAudius() { stopYT(); setMode('audio'); audio.src = S.audiusUrl; ready('audius'); }
 $('audiusBtn').onclick = () => S.audiusUrl && useAudius();
@@ -347,12 +368,17 @@ $('ytlink').onkeydown = e => {
   S.versions = S.versions.filter(v => v.id !== m[1]); S.versions.unshift({ id: m[1], title: 'Your link', thumb: `https://i.ytimg.com/vi/${m[1]}/mqdefault.jpg` });
   useYT(m[1]); e.target.value = '';
 };
-audio.onerror = () => { if (audio.getAttribute('src')) setStatus('That audio could not be played. Try another backing track.'); };
+audio.onerror = () => {
+  if (!audio.getAttribute('src')) return;
+  stopAll(); setMode('none');
+  setStatus('This song is unavailable: the audio track could not be played. Choose another version or paste a YouTube link.');
+  $('hint').textContent = 'No playable backing track is available for this song.';
+};
 audio.onended = () => ended();
 function ended() { $('count').textContent = '🎉 Encore!'; $('count').classList.add('show'); }
 
 /* ---------- transport ---------- */
-const ytOK = () => S.yt && S.yt.getPlayerState;
+const ytOK = () => S.ytPlayerReady && S.yt && S.yt.getPlayerState;
 const now = () => S.mode === 'yt' ? (ytOK() ? S.yt.getCurrentTime() : 0) : audio.currentTime;
 const dur = () => S.mode === 'yt' ? (ytOK() ? S.yt.getDuration() : 0) : (audio.duration || (S.track && S.track.duration) || 0);
 const playing = () => S.mode === 'yt' ? (ytOK() && [1, 3].includes(S.yt.getPlayerState())) : (S.mode === 'audio' && !audio.paused);
