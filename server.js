@@ -21,34 +21,17 @@ function startServer(portIndex = 0) {
   });
 }
 
-const fallbackSongs = [
-  ['Dancing Queen', 'ABBA', 'xFrGuyw1V8s'],
-  ['Bohemian Rhapsody', 'Queen', 'fJ9rUzIMcZQ'],
-  ["Don't Stop Believin'", 'Journey', '1k8craCGpgs'],
-  ['Shallow', 'Lady Gaga & Bradley Cooper', 'bo_efYhYU2A'],
-  ['Perfect', 'Ed Sheeran', '2Vv-BfVoR4g'],
-  ['Mr. Brightside', 'The Killers', 'gGdGFtwCNBE'],
-  ['Total Eclipse of the Heart', 'Bonnie Tyler', 'l4n3E3_hS9w'],
-];
-
-function buildFallbackResults(query) {
-  const normalized = String(query || '').trim().toLowerCase();
-  const matches = fallbackSongs.filter(([title, artist]) => {
-    if (!normalized) return true;
-    const titleMatch = title.toLowerCase().includes(normalized);
-    const artistMatch = artist.toLowerCase().includes(normalized);
-    const firstWord = title.toLowerCase().split(/\s+/)[0];
-    return titleMatch || artistMatch || normalized.includes(firstWord);
-  });
-
-  const items = matches.slice(0, 5).map(([title, artist, id]) => ({
-    id,
-    title,
-    channel: artist,
-    thumb: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
-  }));
-
-  return items;
+const karaokePattern = /\b(karaoke|instrumental|minus[ -]?one|backing track|no vocals?|vocals? removed)\b/i;
+function karaokeScore(item) {
+  const text = `${item.title} ${item.channel}`;
+  if (!karaokePattern.test(text)) return -1;
+  let score = 0;
+  if (/\bkaraoke\b/i.test(text)) score += 5;
+  if (/\bminus[ -]?one\b/i.test(text)) score += 6;
+  if (/\binstrumental\b/i.test(text)) score += 4;
+  if (/\b(backing track|no vocals?|vocals? removed)\b/i.test(text)) score += 3;
+  if (/\b(official video|music video|live|lyrics?)\b/i.test(text)) score -= 5;
+  return score;
 }
 
 app.disable('x-powered-by');
@@ -63,7 +46,7 @@ app.get('/api/youtube', async (req, res) => {
   const youtubeKey = process.env.YOUTUBE_API_KEY;
 
   if (!youtubeKey) {
-    return res.status(200).json({ items: buildFallbackResults(q) });
+    return res.status(200).json({ items: [] });
   }
 
   const params = new URLSearchParams({
@@ -71,8 +54,8 @@ app.get('/api/youtube', async (req, res) => {
     type: 'video',
     videoEmbeddable: 'true',
     videoSyndicated: 'true',
-    maxResults: '5',
-    q: `${q} karaoke instrumental`,
+    maxResults: '10',
+    q: `${q} karaoke instrumental minus one backing track`,
     key: youtubeKey,
   });
 
@@ -84,14 +67,17 @@ app.get('/api/youtube', async (req, res) => {
       return res.status(502).json({ error: payload.error?.message || 'youtube_error' });
     }
 
-    return res.status(200).json({
-      items: (payload.items || []).map((item) => ({
+    const items = (payload.items || []).map((item) => ({
         id: item.id.videoId,
         title: item.snippet.title,
         channel: item.snippet.channelTitle,
         thumb: item.snippet.thumbnails && (item.snippet.thumbnails.medium || item.snippet.thumbnails.default)?.url,
-      })),
-    });
+      })).map((item) => ({ ...item, score: karaokeScore(item) }))
+      .filter((item) => item.score >= 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+      .map(({ score, ...item }) => item);
+    return res.status(200).json({ items });
   } catch (error) {
     return res.status(502).json({ error: 'fetch_failed' });
   }

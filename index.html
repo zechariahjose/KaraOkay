@@ -302,14 +302,17 @@ async function openTrack(t) {
   S.audiusUrl = au.status === 'fulfilled' ? au.value : null;
   renderSources();
   if (S.versions.length) return useYT(S.versions[0].id);
-  if (S.audiusUrl) return useAudius();
+  if (S.audiusUrl) return useAudius(true);
   setStatus('No playable backing track was found for this song. Try another search result or paste a YouTube link.');
   $('hint').textContent = 'This song is currently unavailable. Add another backing track to continue ➜';
 }
 async function findYT(t) {
   const r = await fetch('/api/youtube?q=' + encodeURIComponent(t.trackName + ' ' + t.artistName));
   if (!r.ok) return [];
-  return ((await r.json()).items || []).map(i => ({ id: i.id, title: dec(i.title), thumb: i.thumb }));
+  const isKaraoke = /\b(karaoke|instrumental|minus[ -]?one|backing track|no vocals?|vocals? removed)\b/i;
+  return ((await r.json()).items || [])
+    .map(i => ({ id: i.id, title: dec(i.title), channel: i.channel || '', thumb: i.thumb }))
+    .filter(i => isKaraoke.test(i.title + ' ' + i.channel));
 }
 async function findAudius(t) {
   const r = await fetch('https://api.audius.co/v1/tracks/search?app_name=' + APP + '&query=' + encodeURIComponent(t.trackName + ' ' + t.artistName));
@@ -352,14 +355,17 @@ function handleYTError(code, failedId) {
   }
   if (S.audiusUrl && S.srcKey !== 'audius') {
     setStatus('That video is unavailable. Trying the Audius track…');
-    return useAudius();
+    return useAudius(true);
   }
   stopYT(); setMode('none');
   const reason = ({ 2: 'invalid video link', 5: 'unsupported video format', 100: 'video removed or private', 101: 'embedding disabled', 150: 'embedding disabled', 153: 'player could not verify the request' })[code] || 'video could not be played';
   setStatus(`This song is unavailable: the ${reason}. Choose another version or paste a different YouTube link.`);
   $('hint').textContent = 'No playable backing track is available for this song.';
 }
-function useAudius() { stopYT(); setMode('audio'); audio.src = S.audiusUrl; ready('audius'); }
+function useAudius(karaokeUnavailable = false) {
+  stopYT(); setMode('audio'); audio.src = S.audiusUrl; ready('audius');
+  if (karaokeUnavailable) setStatus('No karaoke or minus-one track was found. Playing the original Audius track instead.');
+}
 $('audiusBtn').onclick = () => S.audiusUrl && useAudius();
 $('ytlink').onkeydown = e => {
   if (e.key !== 'Enter') return;
